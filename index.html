@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#111827" />
+  <title>POP Wheel</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">P</div>
+      <div>
+        <strong>POP Wheel</strong>
+        <span>Ad-free random wheel</span>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button id="addWheelBtn" class="btn">+ Add Wheel</button>
+      <button id="spinAllBtn" class="btn btn-accent">Spin All</button>
+      <button id="focusAllBtn" class="btn" title="Focus all wheels">Focus All</button>
+      <button id="fullscreenBtn" class="icon-btn" title="Fullscreen">⛶</button>
+      <button id="menuBtn" class="icon-btn" title="More">⋯</button>
+    </div>
+  </header>
+
+  <div id="menuPanel" class="menu-panel hidden">
+    <button id="saveBtn">Save in browser</button>
+    <button id="exportBtn">Export JSON</button>
+    <label class="file-label">Import JSON<input id="importInput" type="file" accept="application/json" /></label>
+    <button id="resetBtn" class="danger-text">Reset everything</button>
+  </div>
+
+  <main>
+    <section class="hero">
+      <div>
+        <h1>Spin the wheel. Make the choice.</h1>
+        <p>Create up to 8 wheels, customize entries and weights, then spin. Everything stays in your browser.</p>
+      </div>
+      <div class="status-pill"><span class="dot"></span> No ads · No account · No tracking code</div>
+    </section>
+
+    <section id="wheelsGrid" class="wheels-grid"></section>
+  </main>
+
+  <template id="wheelTemplate">
+    <article class="wheel-card">
+      <div class="wheel-card-head">
+        <input class="wheel-title" value="My Wheel" maxlength="40" aria-label="Wheel title" />
+        <div class="wheel-head-actions">
+          <button class="small-icon focus-wheel" title="Focus wheel">⤢</button>
+          <button class="small-icon duplicate-wheel" title="Duplicate">⧉</button>
+          <button class="small-icon delete-wheel" title="Delete">✕</button>
+        </div>
+      </div>
+
+      <div class="wheel-layout">
+        <div class="wheel-stage">
+          <div class="pointer"></div>
+          <canvas class="wheel-canvas" width="720" height="720"></canvas>
+          <button class="spin-center" aria-label="Spin wheel"><span>SPIN</span></button>
+        </div>
+
+        <aside class="editor">
+          <div class="tabs">
+            <button class="tab active" data-tab="entries">Entries</button>
+            <button class="tab" data-tab="settings">Settings</button>
+            <button class="tab" data-tab="results">Results</button>
+          </div>
+
+          <div class="tab-panel active" data-panel="entries">
+            <div class="editor-row editor-toolbar">
+              <span class="entry-count">0 entries</span>
+              <div>
+                <button class="text-btn shuffle-btn">Shuffle</button>
+                <button class="text-btn sort-btn">Sort</button>
+              </div>
+            </div>
+            <div class="entry-list"></div>
+            <button class="btn full add-entry">+ Add entry</button>
+            <details class="bulk-box">
+              <summary>Bulk edit</summary>
+              <textarea class="bulk-text" rows="7" placeholder="One entry per line\nOptional weight: Prize | 3"></textarea>
+              <button class="btn full apply-bulk">Apply</button>
+            </details>
+          </div>
+
+          <div class="tab-panel" data-panel="settings">
+            <label class="field"><span>Spin duration</span><input class="duration-range" type="range" min="2" max="12" step="1" value="6" /><output>6s</output></label>
+            <label class="check"><input class="remove-winner" type="checkbox" /> Remove winner after spin</label>
+            <label class="check"><input class="show-confetti" type="checkbox" checked /> Confetti on result</label>
+            <label class="check"><input class="sound-enabled" type="checkbox" checked /> Sound effects</label>
+            <label class="field"><span>Wheel theme</span>
+              <select class="theme-select">
+                <option value="pop">POP Blue</option>
+                <option value="bright">Bright</option>
+                <option value="pastel">Pastel</option>
+                <option value="dark">Dark</option>
+                <option value="sunset">Sunset</option>
+              </select>
+            </label>
+            <label class="field"><span>Center label</span><input class="center-label" type="text" value="SPIN" maxlength="12" /></label>
+          </div>
+
+          <div class="tab-panel" data-panel="results">
+            <div class="result-list empty-state">No spins yet.</div>
+            <button class="btn full clear-results">Clear results</button>
+          </div>
+        </aside>
+      </div>
+    </article>
+  </template>
+
+  <template id="focusAllWheelTemplate">
+    <div class="focus-all-item">
+      <div class="focus-all-title"></div>
+      <div class="wheel-stage">
+        <div class="pointer"></div>
+        <canvas class="wheel-canvas" width="720" height="720"></canvas>
+        <button class="spin-center" type="button" aria-label="Spin wheel"><span>SPIN</span></button>
+      </div>
+    </div>
+  </template>
+
+  <div id="focusAllOverlay" class="focus-all-overlay hidden" role="dialog" aria-modal="true" aria-label="Focus all wheels">
+    <button id="closeFocusAll" class="wheel-focus-close" type="button" aria-label="Close focus all">✕</button>
+    <div class="focus-all-toolbar">
+      <button id="focusAllSpinAllBtn" class="btn btn-accent" type="button">Spin All</button>
+    </div>
+    <div id="focusAllGrid" class="focus-all-grid"></div>
+  </div>
+
+  <div id="wheelFocusOverlay" class="wheel-focus-overlay hidden" role="dialog" aria-modal="true" aria-label="Wheel focus view">
+    <button id="closeWheelFocus" class="wheel-focus-close" type="button" aria-label="Close focus view">✕</button>
+    <div class="wheel-stage wheel-focus-stage">
+      <div class="pointer"></div>
+      <canvas class="wheel-canvas" width="720" height="720"></canvas>
+      <button class="spin-center" type="button" aria-label="Spin wheel"><span>SPIN</span></button>
+    </div>
+  </div>
+
+  <div id="winnerModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="winnerLabel">
+    <div class="modal-card">
+      <button id="closeModal" class="modal-close">✕</button>
+      <div class="trophy">★</div>
+      <div class="modal-kicker">The winner is</div>
+      <h2 id="winnerLabel">Winner</h2>
+      <p id="winnerWheelName"></p>
+      <button id="modalDone" class="btn btn-accent wide">Done</button>
+    </div>
+  </div>
+
+  <canvas id="confettiCanvas" class="confetti-canvas"></canvas>
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
