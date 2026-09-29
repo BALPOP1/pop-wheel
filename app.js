@@ -28,6 +28,7 @@
   let focusAllOpen = false;
   let enteredFullscreenForFocus = false;
   let confettiGeneration = 0;
+  let blacklistMode = false;
 
   function uid(){ return Math.random().toString(36).slice(2,10); }
   function clone(v){ return JSON.parse(JSON.stringify(v)); }
@@ -36,8 +37,23 @@
     return {
       id: uid(), name, rotation:0, duration:6, removeWinner:false, confetti:true, sound:true,
       theme:'pop', centerLabel:'SPIN', spinning:false, results:[],
-      entries: defaultEntries.map((text,i)=>({id:uid(),text,weight:1,color:colors[i%colors.length]}))
+      entries: defaultEntries.map((text,i)=>({id:uid(),text,weight:1,color:colors[i%colors.length],blacklisted:false}))
     };
+  }
+
+  function normalizeEntry(entry){
+    if(typeof entry.blacklisted!=='boolean')entry.blacklisted=false;
+    return entry;
+  }
+
+  function normalizeAppData(){
+    app.wheels.forEach(w=>{
+      w.entries=(w.entries||[]).map(normalizeEntry);
+    });
+  }
+
+  function eligibleEntryCount(entries){
+    return entries.filter(e=>!e.blacklisted).length;
   }
 
   function load(){
@@ -46,6 +62,13 @@
       if(saved && Array.isArray(saved.wheels) && saved.wheels.length){ app=saved; }
       else app.wheels=[makeWheel('Decision Wheel')];
     } catch { app.wheels=[makeWheel('Decision Wheel')]; }
+    normalizeAppData();
+  }
+
+  function toggleBlacklistMode(){
+    blacklistMode=!blacklistMode;
+    document.body.classList.toggle('blacklist-mode',blacklistMode);
+    render();
   }
   function persist(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }
   function toast(msg){ const t=el('toast');t.textContent=msg;t.classList.remove('hidden');clearTimeout(t._timer);t._timer=setTimeout(()=>t.classList.add('hidden'),1800); }
@@ -97,13 +120,10 @@
     try{if(document.fullscreenElement)await document.exitFullscreen();}catch{}
   }
 
-  function focusAllColumnCount(n,vw,vh){
-    if(n===1)return 1;
+  function focusAllColumnCount(n){
+    if(n<=1)return 1;
     if(n===2)return 2;
-    if(n===3)return vw>=820?3:(vh>vw?1:2);
-    if(n===4)return 2;
-    if(n<=6)return vw>=1000?3:2;
-    return vw>=1280?4:3;
+    return 3;
   }
 
   function layoutSingleWheelFocus(){
@@ -124,7 +144,7 @@
     const n=app.wheels.length;
     const vw=window.innerWidth;
     const vh=window.innerHeight;
-    const cols=focusAllColumnCount(n,vw,vh);
+    const cols=focusAllColumnCount(n);
     const rows=Math.ceil(n/cols);
     const gap=24;
     const pad=28;
@@ -135,7 +155,6 @@
     const byW=Math.floor(availW/cols);
     const byH=Math.floor((availH-titleH*rows)/rows);
     const size=Math.min(720,Math.max(260,Math.min(byW,byH)));
-    focusAllGrid.style.setProperty('--focus-cols',String(cols));
     focusAllGrid.style.setProperty('--focus-gap',`${gap}px`);
     focusAllGrid.style.setProperty('--focus-wheel-size',`${size}px`);
   }
@@ -159,17 +178,25 @@
     });
   }
 
+  function createFocusAllTile(w){
+    const tile=focusAllTemplate.content.firstElementChild.cloneNode(true);
+    tile.dataset.wheelId=w.id;
+    tile.querySelector('.focus-all-title').textContent=w.name;
+    tile.querySelector('.spin-center span').textContent=w.centerLabel||'SPIN';
+    tile.querySelector('.spin-center').disabled=!!w.spinning;
+    tile.querySelector('.spin-center').addEventListener('click',()=>spinWheel(w,tile));
+    return tile;
+  }
+
   function renderFocusAllGrid(){
     focusAllGrid.innerHTML='';
-    app.wheels.forEach(w=>{
-      const tile=focusAllTemplate.content.firstElementChild.cloneNode(true);
-      tile.dataset.wheelId=w.id;
-      tile.querySelector('.focus-all-title').textContent=w.name;
-      tile.querySelector('.spin-center span').textContent=w.centerLabel||'SPIN';
-      tile.querySelector('.spin-center').disabled=!!w.spinning;
-      tile.querySelector('.spin-center').addEventListener('click',()=>spinWheel(w,tile));
-      focusAllGrid.appendChild(tile);
-    });
+    const cols=focusAllColumnCount(app.wheels.length);
+    for(let i=0;i<app.wheels.length;i+=cols){
+      const row=document.createElement('div');
+      row.className='focus-all-row';
+      app.wheels.slice(i,i+cols).forEach(w=>row.appendChild(createFocusAllTile(w)));
+      focusAllGrid.appendChild(row);
+    }
     layoutFocusAllGrid();
     redrawFocusViewsAfterLayout();
   }
@@ -307,10 +334,27 @@
     const list=node.querySelector('.entry-list'); list.innerHTML='';
     node.querySelector('.entry-count').textContent=`${w.entries.length} entr${w.entries.length===1?'y':'ies'}`;
     w.entries.forEach((entry)=>{
-      const row=document.createElement('div');row.className='entry-row';
-      row.innerHTML=`<label class="entry-color"><input type="color" value="${entry.color}"></label><input class="entry-text" maxlength="100"><input class="entry-weight" type="number" min="0.01" step="0.01"><button class="remove-entry" title="Remove">✕</button>`;
+      normalizeEntry(entry);
+      const row=document.createElement('div');
+      row.className='entry-row';
+      row.innerHTML=`<label class="entry-color"><input type="color" value="${entry.color}"></label><input class="entry-text" maxlength="100"><input class="entry-weight" type="number" min="0.01" step="0.01"><label class="entry-blacklist" title="Never win"><input type="checkbox" class="entry-blacklist-check"></label><button class="remove-entry" title="Remove">✕</button>`;
       row.querySelector('.entry-text').value=entry.text;
       row.querySelector('.entry-weight').value=entry.weight;
+      const ban=row.querySelector('.entry-blacklist-check');
+      ban.checked=!!entry.blacklisted;
+      ban.addEventListener('change',e=>{
+        if(e.target.checked){
+          const wouldRemain=eligibleEntryCount(w.entries)-(entry.blacklisted?0:1);
+          if(wouldRemain<1){
+            e.target.checked=false;
+            toast('At least one entry must be allowed to win.');
+            return;
+          }
+        }
+        entry.blacklisted=e.target.checked;
+        refreshAllCanvasesForWheel(w,node);
+        persist();
+      });
       row.querySelector('input[type=color]').addEventListener('input',e=>{entry.color=e.target.value;refreshAllCanvasesForWheel(w,node);persist();});
       row.querySelector('.entry-text').addEventListener('input',e=>{entry.text=e.target.value;refreshAllCanvasesForWheel(w,node);persist();});
       row.querySelector('.entry-weight').addEventListener('input',e=>{entry.weight=Math.max(.01,+e.target.value||1);refreshAllCanvasesForWheel(w,node);persist();});
@@ -331,7 +375,7 @@
 
   function addEntry(w){
     const p=paletteSets[w.theme]||paletteSets.pop; const i=w.entries.length;
-    w.entries.push({id:uid(),text:`Option ${i+1}`,weight:1,color:p[i%p.length]});
+    w.entries.push({id:uid(),text:`Option ${i+1}`,weight:1,color:p[i%p.length],blacklisted:false});
   }
   function applyBulk(w,text){
     const lines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
@@ -339,7 +383,7 @@
     const p=paletteSets[w.theme]||paletteSets.pop;
     w.entries=lines.map((line,i)=>{
       const parts=line.split('|'); const weight=parts.length>1?Math.max(.01,parseFloat(parts.pop())||1):1;
-      return {id:uid(),text:parts.join('|').trim(),weight,color:p[i%p.length]};
+      return {id:uid(),text:parts.join('|').trim(),weight,color:p[i%p.length],blacklisted:false};
     });
     render();
   }
@@ -392,8 +436,15 @@
   function truncate(s,n){s=s||'';return s.length>n?s.slice(0,n-1)+'…':s;}
 
   function weightedPick(entries){
-    const total=entries.reduce((s,e)=>s+(+e.weight||0),0);let x=Math.random()*total;
-    for(let i=0;i<entries.length;i++){x-=+entries[i].weight||0;if(x<=0)return i;} return entries.length-1;
+    const pool=entries.map((e,i)=>({e,i})).filter(x=>!x.e.blacklisted);
+    if(!pool.length)return -1;
+    const total=pool.reduce((s,x)=>s+(+x.e.weight||0),0)||1;
+    let x=Math.random()*total;
+    for(let j=0;j<pool.length;j++){
+      x-=+pool[j].e.weight||0;
+      if(x<=0)return pool[j].i;
+    }
+    return pool[pool.length-1].i;
   }
 
   function targetRotationForIndex(w,index){
@@ -411,9 +462,16 @@
 
   function spinWheel(w,node,opts={}){
     if(w.spinning||!w.entries.length)return Promise.resolve();
+    if(!eligibleEntryCount(w.entries)){toast('Unban at least one entry to spin.');return Promise.resolve();}
     w.spinning=true; spinningCount++;
     setSpinButtonsDisabled(w,true);
-    const winnerIndex=weightedPick(w.entries);const winner=clone(w.entries[winnerIndex]);
+    const winnerIndex=weightedPick(w.entries);
+    if(winnerIndex<0){
+      w.spinning=false;spinningCount--;setSpinButtonsDisabled(w,false);
+      toast('No eligible entries to win.');
+      return Promise.resolve();
+    }
+    const winner=clone(w.entries[winnerIndex]);
     const start=w.rotation;const end=targetRotationForIndex(w,winnerIndex);const duration=w.duration*1000;const startTime=performance.now();
     if(w.sound) beep(160,.045);
     return new Promise(resolve=>{
@@ -523,6 +581,7 @@
     requestAnimationFrame(go);
   }
 
+  el('brandMarkBtn').addEventListener('click',toggleBlacklistMode);
   el('addWheelBtn').addEventListener('click',()=>{ if(app.wheels.length>=MAX_WHEELS){toast('Maximum 8 wheels.');return;} app.wheels.push(makeWheel(`Wheel ${app.wheels.length+1}`));render(); });
   async function spinAllWheels(getNodeForWheel){
     if(spinningCount)return;
@@ -545,7 +604,7 @@
   el('exportBtn').addEventListener('click',()=>{
     const blob=new Blob([JSON.stringify(app,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='pop-wheel-data.json';a.click();URL.revokeObjectURL(a.href);
   });
-  el('importInput').addEventListener('change',async e=>{try{const data=JSON.parse(await e.target.files[0].text());if(!data.wheels||!Array.isArray(data.wheels))throw 0;app=data;app.wheels=app.wheels.slice(0,MAX_WHEELS);render();toast('Imported.');}catch{toast('Invalid wheel file.');}e.target.value='';});
+  el('importInput').addEventListener('change',async e=>{try{const data=JSON.parse(await e.target.files[0].text());if(!data.wheels||!Array.isArray(data.wheels))throw 0;app=data;app.wheels=app.wheels.slice(0,MAX_WHEELS);normalizeAppData();render();toast('Imported.');}catch{toast('Invalid wheel file.');}e.target.value='';});
   el('resetBtn').addEventListener('click',()=>{if(confirm('Reset all wheels and results?')){app={wheels:[makeWheel('Decision Wheel')]};render();}});
   el('closeModal').addEventListener('click',closeWinner);el('modalDone').addEventListener('click',closeWinner);modal.addEventListener('click',e=>{if(e.target===modal)closeWinner();});
   el('closeWheelFocus').addEventListener('click',closeWheelFocus);
