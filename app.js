@@ -316,6 +316,9 @@
     node.querySelector('.shuffle-btn').addEventListener('click',()=>{w.entries.sort(()=>Math.random()-.5);render();});
     node.querySelector('.sort-btn').addEventListener('click',()=>{w.entries.sort((a,b)=>a.text.localeCompare(b.text));render();});
     node.querySelector('.apply-bulk').addEventListener('click',()=>applyBulk(w,node.querySelector('.bulk-text').value));
+    node.querySelector('.apply-bulk-blacklist').addEventListener('click',()=>applyBulkBlacklist(w,node.querySelector('.bulk-blacklist-text').value,node));
+    node.querySelector('.clear-bulk-blacklist').addEventListener('click',()=>clearAllBans(w,node));
+    syncBulkBlacklistField(node,w);
     node.querySelector('.clear-results').addEventListener('click',()=>{w.results=[];render();});
     node.querySelector('.focus-wheel').addEventListener('click',()=>openWheelFocus(w,node));
     node.querySelector('.delete-wheel').addEventListener('click',()=>{
@@ -361,6 +364,7 @@
       row.querySelector('.remove-entry').addEventListener('click',()=>{ if(w.entries.length<=1){toast('A wheel needs at least one entry.');return;} w.entries=w.entries.filter(x=>x.id!==entry.id);render(); });
       list.appendChild(row);
     });
+    syncBulkBlacklistField(node,w);
   }
 
   function renderResults(node,w){
@@ -386,6 +390,49 @@
       return {id:uid(),text:parts.join('|').trim(),weight,color:p[i%p.length],blacklisted:false};
     });
     render();
+  }
+
+  function syncBulkBlacklistField(node,w){
+    const field=node.querySelector('.bulk-blacklist-text');
+    if(!field||!blacklistMode)return;
+    field.value=w.entries.filter(e=>e.blacklisted).map(e=>e.text).join('\n');
+  }
+
+  function applyBulkBlacklist(w,text,node){
+    const lines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+    if(!lines.length){toast('Add at least one entry name.');return;}
+    const banKeys=new Set(lines.map(s=>s.toLowerCase()));
+    const prev=w.entries.map(e=>({id:e.id,blacklisted:!!e.blacklisted}));
+    w.entries.forEach(e=>{e.blacklisted=false;});
+    let matched=0;
+    w.entries.forEach(e=>{
+      if(banKeys.has(String(e.text||'').trim().toLowerCase())){
+        e.blacklisted=true;
+        matched++;
+      }
+    });
+    if(eligibleEntryCount(w.entries)<1){
+      w.entries.forEach(e=>{
+        const p=prev.find(x=>x.id===e.id);
+        if(p)e.blacklisted=p.blacklisted;
+      });
+      toast('At least one entry must stay allowed to win.');
+      return;
+    }
+    persist();
+    syncBulkBlacklistField(node,w);
+    render();
+    const missed=lines.length-matched;
+    if(missed>0)toast(`Banned ${matched}. ${missed} name${missed===1?'':'s'} not found.`);
+    else toast(`Banned ${matched} entr${matched===1?'y':'ies'}.`);
+  }
+
+  function clearAllBans(w,node){
+    w.entries.forEach(e=>{e.blacklisted=false;});
+    persist();
+    syncBulkBlacklistField(node,w);
+    render();
+    toast('All bans cleared.');
   }
 
   function refreshCanvas(node,w){ const c=node.querySelector('.wheel-canvas');drawWheel(w,c.getContext('2d'),c); }
